@@ -28,7 +28,7 @@ nav a{margin-right:16px}@media print{button,nav{display:none}.hide .ans span{vis
 <div class="durs"><button data-m="1">1 minute</button><button data-m="2" class="sel">2 minutes</button><button data-m="3">3 minutes</button></div>
 <p style="margin:6px 0"><b>Answer by:</b> <label><input type="radio" name="mode" value="type" checked> Typing</label> &nbsp; <label><input type="radio" name="mode" value="voice" id="voiceopt"> Spelling aloud</label><br><small id="voicenote">Spelling aloud: say the letters one by one, e.g. "P, E, double L, U, C, I, D". The microphone turns on after each word is read.</small></p>
 <label><input type="checkbox" id="showclue" checked> Show meaning clue and pronunciation</label><br><br>
-<button id="start">Start</button> <small>Turn your sound on.</small>
+<button id="start">Start</button> <button id="testv" class="sec">🔊 Test voice</button><br><small>Turn the volume up. On iPhone, also switch off Silent mode.</small>
 </div>
 <div id="play">
 <div class="row" style="justify-content:space-between;align-items:center"><div id="timer">2:00</div><div id="score">Score: 0 / 0</div></div>
@@ -79,7 +79,14 @@ function tone(f,d,t='sine',v=.25,at=0){try{ac=ac||new (window.AudioContext||wind
 const cue={ok:()=>{tone(660,.12);tone(880,.18,'sine',.25,.12)},no:()=>{tone(220,.35,'square',.12)},tick:()=>tone(1000,.06,'sine',.15),start:()=>{tone(523,.15);tone(659,.15,'sine',.25,.15);tone(784,.3,'sine',.25,.3)},end:()=>{tone(784,.2);tone(659,.2,'sine',.25,.2);tone(523,.5,'sine',.25,.4)}};
 let voice=null;function pickVoice(){const v=speechSynthesis.getVoices();voice=v.find(x=>/en[-_]GB/i.test(x.lang))||v.find(x=>/^en/i.test(x.lang))||null}
 if('speechSynthesis' in window){pickVoice();speechSynthesis.onvoiceschanged=pickVoice}
-function say(t,cb){if(!('speechSynthesis' in window))return;speechSynthesis.cancel();const u=new SpeechSynthesisUtterance(t);if(voice)u.voice=voice;u.lang=voice?voice.lang:'en-GB';u.rate=.85;if(cb)u.onend=cb;speechSynthesis.speak(u)}
+let curU=null;
+function say(t,cb){if(!('speechSynthesis' in window)){$('heard').textContent='This browser can’t read words aloud. Open the page in Safari or Chrome.';return}
+const go=()=>{const u=new SpeechSynthesisUtterance(t);if(voice)u.voice=voice;u.lang=voice?voice.lang:'en-GB';u.rate=.85;u.volume=1;
+let done=false;const fin=()=>{if(!done){done=true;cb&&cb()}};u.onend=fin;u.onerror=fin;curU=u;speechSynthesis.speak(u);
+if(cb)setTimeout(fin,Math.max(2500,t.length*250));};
+if(speechSynthesis.speaking||speechSynthesis.pending){speechSynthesis.cancel();setTimeout(go,120)}else go()}
+function unlockAudio(){try{ac=ac||new (window.AudioContext||window.webkitAudioContext)();if(ac.state==='suspended')ac.resume()}catch(e){}
+if('speechSynthesis' in window){speechSynthesis.cancel();const u=new SpeechSynthesisUtterance('Get ready');if(voice)u.voice=voice;u.lang=voice?voice.lang:'en-GB';u.rate=.9;curU=u;speechSynthesis.speak(u)}}
 function shuffle(a){for(let i=a.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[a[i],a[j]]=[a[j],a[i]]}return a}
 function fmt(s){return Math.floor(s/60)+':'+String(s%60).padStart(2,'0')}
 function next(){if(!pool.length)pool=shuffle(WORDS.slice());cur=pool.pop();$('ans').value='';$('fb').textContent='';$('fb').className='';
@@ -91,13 +98,13 @@ else{cue.no();missed.push({w:cur.w,a});$('fb').innerHTML='Not quite. It is spell
 upd();setTimeout(()=>{if(left>0)next()},a===cur.w.toLowerCase()?700:1800)}
 function skip(){if(busy||!cur)return;stopRec();total++;missed.push({w:cur.w,a:'(skipped)'});cue.no();upd();busy=true;$('fb').innerHTML='Skipped. It is spelled <b>'+cur.w+'</b>';$('fb').className='no';setTimeout(()=>{if(left>0)next()},1500)}
 function start(){mode=document.querySelector('input[name=mode]:checked').value;$('mic').style.display=mode==='voice'?'':'none';document.body.classList.add('playing');right=total=0;missed=[];pool=shuffle(WORDS.slice());left=mins*60;$('timer').textContent=fmt(left);$('timer').className='';upd();
-$('setup').style.display='none';$('result').style.display='none';$('play').style.display='block';cue.start();setTimeout(next,700);
+$('setup').style.display='none';$('result').style.display='none';$('play').style.display='block';unlockAudio();cue.start();setTimeout(next,1400);
 tick=setInterval(()=>{left--;$('timer').textContent=fmt(Math.max(left,0));if(left<=10&&left>0){$('timer').className='low';cue.tick()}if(left<=0)finish()},1000)}
 function finish(){stopRec();document.body.classList.remove('playing');clearInterval(tick);left=0;if('speechSynthesis' in window)speechSynthesis.cancel();cue.end();$('play').style.display='none';
 let h='<h3>Time\'s up!</h3><p style="font-size:1.3rem"><b>'+right+'</b> correct out of <b>'+total+'</b> ('+(total?Math.round(100*right/total):0)+'%)</p>';
 if(missed.length){h+='<p>Words to practise:</p><ul>'+missed.map(m=>'<li><b>'+m.w+'</b> — you wrote: '+m.a.replace(/</g,'&lt;')+'</li>').join('')+'</ul>'}
 h+='<button id="again">Play again</button>';$('result').innerHTML=h;$('result').style.display='block';$('again').onclick=()=>{$('result').style.display='none';$('setup').style.display='block'}}
-$('start').onclick=start;$('check').onclick=check;$('skip').onclick=skip;$('stop').onclick=finish;$('rep').onclick=()=>{if(cur){stopRec();say(cur.w,afterSay)}};$('mic').onclick=listen;
+$('start').onclick=start;$('testv').onclick=()=>{try{ac=ac||new (window.AudioContext||window.webkitAudioContext)();ac.resume()}catch(e){}tone(660,.15);if('speechSynthesis' in window){speechSynthesis.cancel();const u=new SpeechSynthesisUtterance('Can you hear me? Pellucid.');if(voice)u.voice=voice;u.lang=voice?voice.lang:'en-GB';u.rate=.85;curU=u;speechSynthesis.speak(u)}else alert('This browser cannot read words aloud. Open the page in Safari or Chrome.')};$('check').onclick=check;$('skip').onclick=skip;$('stop').onclick=finish;$('rep').onclick=()=>{if(cur){stopRec();say(cur.w,afterSay)}};$('mic').onclick=listen;
 $('ans').addEventListener('keydown',e=>{if(e.key==='Enter')check()});
 
 const b=document.getElementById('t');b.onclick=()=>{document.body.classList.toggle('hide');b.textContent=document.body.classList.contains('hide')?'Show answers':'Hide answers';document.querySelectorAll('.ans span').forEach(x=>x.style.visibility='')};
