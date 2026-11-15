@@ -27,6 +27,7 @@ nav a{margin-right:16px}@media print{button,nav{display:none}.hide .ans span{vis
 <p>Pick a time limit, then tap <b>Start</b>. Each word is read aloud. Type the spelling and press <b>Enter</b> or <b>Check</b>.</p>
 <div class="durs"><button data-m="1">1 minute</button><button data-m="2" class="sel">2 minutes</button><button data-m="3">3 minutes</button></div>
 <p style="margin:6px 0"><b>Answer by:</b> <label><input type="radio" name="mode" value="type" checked> Typing</label> &nbsp; <label><input type="radio" name="mode" value="voice" id="voiceopt"> Spelling aloud</label><br><small id="voicenote">Spelling aloud: say the letters one by one, e.g. "P, E, double L, U, C, I, D". The microphone turns on after each word is read.</small></p>
+<p style="margin:6px 0"><b>Voice accent:</b> <select id="accent"><option value="en-IN">Indian English</option><option value="en-GB">British English</option><option value="en-US">American English</option><option value="en-AU">Australian English</option></select> <select id="voicesel" style="display:none"></select><br><small id="accnote"></small></p>
 <label><input type="checkbox" id="showclue" checked> Show meaning clue and pronunciation</label><br><br>
 <button id="start">Start</button> <button id="testv" class="sec">🔊 Test voice</button><br><small>Turn the volume up. On iPhone, also switch off Silent mode.</small>
 </div>
@@ -63,7 +64,7 @@ if(dbl&&L.length===1)L=L.repeat(dbl==='double'?2:3);dbl=false;out+=L}return out}
 function bestOf(results){let alts=[];for(const r of results){}return alts}
 function stopRec(){listening=false;clearTimeout(silT);try{rec&&rec.stop()}catch(e){}$('mic').classList.remove('on');$('mic').textContent='🎤 Spell aloud'}
 function listen(){if(!SR||!cur||busy||left<=0)return;if(listening){stopRec();return}
-rec=new SR();rec.lang='en-GB';rec.continuous=true;rec.interimResults=true;rec.maxAlternatives=5;finalTxt='';let finals=[];
+rec=new SR();rec.lang=accent;rec.continuous=true;rec.interimResults=true;rec.maxAlternatives=5;finalTxt='';let finals=[];
 rec.onresult=e=>{let interim='';finals=[];for(let i=0;i<e.results.length;i++){const r=e.results[i];if(r.isFinal)finals.push(r);else interim+=r[0].transcript+' '}
 const txt=finals.map(r=>r[0].transcript).join(' ')+' '+interim;const L=toLetters(txt);$('ans').value=L;$('heard').textContent='Heard: '+(L?L.toUpperCase().split('').join('-'):'…');
 clearTimeout(silT);silT=setTimeout(()=>{stopRec();voiceCheck(finals,txt)},1800)};
@@ -77,16 +78,24 @@ function afterSay(){if(mode==='voice')setTimeout(listen,250)}
 document.querySelectorAll('.durs button').forEach(b=>b.onclick=()=>{document.querySelectorAll('.durs button').forEach(x=>x.classList.remove('sel'));b.classList.add('sel');mins=+b.dataset.m});
 function tone(f,d,t='sine',v=.25,at=0){try{ac=ac||new (window.AudioContext||window.webkitAudioContext)();const o=ac.createOscillator(),g=ac.createGain();o.type=t;o.frequency.value=f;g.gain.value=v;o.connect(g);g.connect(ac.destination);const s=ac.currentTime+at;o.start(s);g.gain.exponentialRampToValueAtTime(.001,s+d);o.stop(s+d)}catch(e){}}
 const cue={ok:()=>{tone(660,.12);tone(880,.18,'sine',.25,.12)},no:()=>{tone(220,.35,'square',.12)},tick:()=>tone(1000,.06,'sine',.15),start:()=>{tone(523,.15);tone(659,.15,'sine',.25,.15);tone(784,.3,'sine',.25,.3)},end:()=>{tone(784,.2);tone(659,.2,'sine',.25,.2);tone(523,.5,'sine',.25,.4)}};
-let voice=null;function pickVoice(){const v=speechSynthesis.getVoices();voice=v.find(x=>/en[-_]GB/i.test(x.lang))||v.find(x=>/^en/i.test(x.lang))||null}
-if('speechSynthesis' in window){pickVoice();speechSynthesis.onvoiceschanged=pickVoice}
+let voice=null,accent='en-IN';try{accent=localStorage.getItem('lexAccent')||'en-IN'}catch(e){}
+const norm=l=>(l||'').replace('_','-').toLowerCase();
+function fillVoices(){if(!('speechSynthesis' in window))return;const all=speechSynthesis.getVoices();const m=all.filter(v=>norm(v.lang)===accent.toLowerCase());
+const sel=$('voicesel');let saved='';try{saved=localStorage.getItem('lexVoice')||''}catch(e){}
+sel.innerHTML=m.map(v=>'<option value="'+v.name.replace(/"/g,'&quot;')+'">'+v.name+'</option>').join('');
+if(m.length){voice=m.find(v=>v.name===saved)||m.find(v=>/google|premium|enhanced/i.test(v.name))||m[0];sel.value=voice.name;sel.style.display=m.length>1?'':'none';$('accnote').textContent=''}
+else{voice=all.find(v=>/^en/i.test(norm(v.lang)))||null;sel.style.display='none';
+$('accnote').textContent=all.length?'This device has no '+$('accent').selectedOptions[0].text+' voice installed, so another English voice will be used. On iPhone: Settings → Accessibility → Spoken Content → Voices → English → India. On Android: Settings → Text-to-speech → Google → Install voice data → English (India).':''}}
+function pickVoice(){fillVoices()}
+if('speechSynthesis' in window){setTimeout(fillVoices,0);speechSynthesis.onvoiceschanged=fillVoices}
 let curU=null;
 function say(t,cb){if(!('speechSynthesis' in window)){$('heard').textContent='This browser can’t read words aloud. Open the page in Safari or Chrome.';return}
-const go=()=>{const u=new SpeechSynthesisUtterance(t);if(voice)u.voice=voice;u.lang=voice?voice.lang:'en-GB';u.rate=.85;u.volume=1;
+const go=()=>{const u=new SpeechSynthesisUtterance(t);if(voice)u.voice=voice;u.lang=voice?voice.lang:accent;u.rate=.85;u.volume=1;
 let done=false;const fin=()=>{if(!done){done=true;cb&&cb()}};u.onend=fin;u.onerror=fin;curU=u;speechSynthesis.speak(u);
 if(cb)setTimeout(fin,Math.max(2500,t.length*250));};
 if(speechSynthesis.speaking||speechSynthesis.pending){speechSynthesis.cancel();setTimeout(go,120)}else go()}
 function unlockAudio(){try{ac=ac||new (window.AudioContext||window.webkitAudioContext)();if(ac.state==='suspended')ac.resume()}catch(e){}
-if('speechSynthesis' in window){speechSynthesis.cancel();const u=new SpeechSynthesisUtterance('Get ready');if(voice)u.voice=voice;u.lang=voice?voice.lang:'en-GB';u.rate=.9;curU=u;speechSynthesis.speak(u)}}
+if('speechSynthesis' in window){speechSynthesis.cancel();const u=new SpeechSynthesisUtterance('Get ready');if(voice)u.voice=voice;u.lang=voice?voice.lang:accent;u.rate=.9;curU=u;speechSynthesis.speak(u)}}
 function shuffle(a){for(let i=a.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[a[i],a[j]]=[a[j],a[i]]}return a}
 function fmt(s){return Math.floor(s/60)+':'+String(s%60).padStart(2,'0')}
 function next(){if(!pool.length)pool=shuffle(WORDS.slice());cur=pool.pop();$('ans').value='';$('fb').textContent='';$('fb').className='';
@@ -104,7 +113,7 @@ function finish(){stopRec();document.body.classList.remove('playing');clearInter
 let h='<h3>Time\'s up!</h3><p style="font-size:1.3rem"><b>'+right+'</b> correct out of <b>'+total+'</b> ('+(total?Math.round(100*right/total):0)+'%)</p>';
 if(missed.length){h+='<p>Words to practise:</p><ul>'+missed.map(m=>'<li><b>'+m.w+'</b> — you wrote: '+m.a.replace(/</g,'&lt;')+'</li>').join('')+'</ul>'}
 h+='<button id="again">Play again</button>';$('result').innerHTML=h;$('result').style.display='block';$('again').onclick=()=>{$('result').style.display='none';$('setup').style.display='block'}}
-$('start').onclick=start;$('testv').onclick=()=>{try{ac=ac||new (window.AudioContext||window.webkitAudioContext)();ac.resume()}catch(e){}tone(660,.15);if('speechSynthesis' in window){speechSynthesis.cancel();const u=new SpeechSynthesisUtterance('Can you hear me? Pellucid.');if(voice)u.voice=voice;u.lang=voice?voice.lang:'en-GB';u.rate=.85;curU=u;speechSynthesis.speak(u)}else alert('This browser cannot read words aloud. Open the page in Safari or Chrome.')};$('check').onclick=check;$('skip').onclick=skip;$('stop').onclick=finish;$('rep').onclick=()=>{if(cur){stopRec();say(cur.w,afterSay)}};$('mic').onclick=listen;
+$('accent').value=accent;$('accent').onchange=()=>{accent=$('accent').value;try{localStorage.setItem('lexAccent',accent)}catch(e){}fillVoices()};$('voicesel').onchange=()=>{const v=speechSynthesis.getVoices().find(x=>x.name===$('voicesel').value);if(v)voice=v;try{localStorage.setItem('lexVoice',v.name)}catch(e){}};$('start').onclick=start;$('testv').onclick=()=>{try{ac=ac||new (window.AudioContext||window.webkitAudioContext)();ac.resume()}catch(e){}tone(660,.15);if('speechSynthesis' in window){speechSynthesis.cancel();const u=new SpeechSynthesisUtterance('Can you hear me? Pellucid.');if(voice)u.voice=voice;u.lang=voice?voice.lang:accent;u.rate=.85;curU=u;speechSynthesis.speak(u)}else alert('This browser cannot read words aloud. Open the page in Safari or Chrome.')};$('check').onclick=check;$('skip').onclick=skip;$('stop').onclick=finish;$('rep').onclick=()=>{if(cur){stopRec();say(cur.w,afterSay)}};$('mic').onclick=listen;
 $('ans').addEventListener('keydown',e=>{if(e.key==='Enter')check()});
 
 const b=document.getElementById('t');b.onclick=()=>{document.body.classList.toggle('hide');b.textContent=document.body.classList.contains('hide')?'Show answers':'Hide answers';document.querySelectorAll('.ans span').forEach(x=>x.style.visibility='')};
